@@ -198,6 +198,10 @@ class KGProcessor(DataProcessor):
             tail_ent_text = ent2text[line[2]]
             relation_text = rel2text[line[1]]
 
+            text_a = head_ent_text
+            text_b = relation_text
+            text_c = tail_ent_text
+
             if set_type == "dev" or set_type == "test":
                 triple_label = line[3]
                 if triple_label == "1":
@@ -206,18 +210,13 @@ class KGProcessor(DataProcessor):
                     label = "0"
 
                 guid = "%s-%s" % (set_type, i)
-                text_a = head_ent_text
-                text_b = relation_text
-                text_c = tail_ent_text
+
                 self.labels.add(label)
                 examples.append(
                     InputExample(guid=guid, text_a=text_a, text_b=text_b, text_c = text_c, label=label))
 
             elif set_type == "train":
                 guid = "%s-%s" % (set_type, i)
-                text_a = head_ent_text
-                text_b = relation_text
-                text_c = tail_ent_text
                 examples.append(
                     InputExample(guid=guid, text_a=text_a, text_b=text_b, text_c = text_c, label="1"))
 
