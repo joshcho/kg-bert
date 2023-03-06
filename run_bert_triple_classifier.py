@@ -23,6 +23,8 @@ import logging
 import os
 import random
 import sys
+import pickle
+from datetime import (datetime, date)
 
 import numpy as np
 import torch
@@ -113,7 +115,9 @@ class KGProcessor(DataProcessor):
     """Processor for knowledge graph data set."""
     def __init__(self):
         self.labels = set()
-    
+        now = datetime.now()
+        self.timestamp = str(date.today()) + "_" + now.strftime("%H:%M")
+
     def get_train_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
@@ -136,6 +140,7 @@ class KGProcessor(DataProcessor):
             lines = f.readlines()
             relations = []
             for line in lines:
+                print(line.strip())
                 relations.append(line.strip())
         return relations
 
@@ -183,12 +188,12 @@ class KGProcessor(DataProcessor):
             rel_lines = f.readlines()
             for line in rel_lines:
                 temp = line.strip().split('\t')
-                rel2text[temp[0]] = temp[1]      
+                rel2text[temp[0]] = temp[1]
 
         lines_str_set = set(['\t'.join(line) for line in lines])
         examples = []
         for (i, line) in enumerate(lines):
-            
+
             head_ent_text = ent2text[line[0]]
             tail_ent_text = ent2text[line[2]]
             relation_text = rel2text[line[1]]
@@ -203,16 +208,16 @@ class KGProcessor(DataProcessor):
                 guid = "%s-%s" % (set_type, i)
                 text_a = head_ent_text
                 text_b = relation_text
-                text_c = tail_ent_text 
+                text_c = tail_ent_text
                 self.labels.add(label)
                 examples.append(
                     InputExample(guid=guid, text_a=text_a, text_b=text_b, text_c = text_c, label=label))
-                
+
             elif set_type == "train":
                 guid = "%s-%s" % (set_type, i)
                 text_a = head_ent_text
                 text_b = relation_text
-                text_c = tail_ent_text 
+                text_c = tail_ent_text
                 examples.append(
                     InputExample(guid=guid, text_a=text_a, text_b=text_b, text_c = text_c, label="1"))
 
@@ -228,10 +233,10 @@ class KGProcessor(DataProcessor):
                         tmp_head = random.choice(tmp_ent_list)
                         tmp_triple_str = tmp_head + '\t' + line[1] + '\t' + line[2]
                         if tmp_triple_str not in lines_str_set:
-                            break                    
+                            break
                     tmp_head_text = ent2text[tmp_head]
                     examples.append(
-                        InputExample(guid=guid, text_a=tmp_head_text, text_b=text_b, text_c = text_c, label="0"))       
+                        InputExample(guid=guid, text_a=tmp_head_text, text_b=text_b, text_c = text_c, label="0"))
                 else:
                     # corrupting tail
                     tmp_tail = ''
@@ -245,7 +250,9 @@ class KGProcessor(DataProcessor):
                             break
                     tmp_tail_text = ent2text[tmp_tail]
                     examples.append(
-                        InputExample(guid=guid, text_a=text_a, text_b=text_b, text_c = tmp_tail_text, label="0"))                                                  
+                        InputExample(guid=guid, text_a=text_a, text_b=text_b, text_c = tmp_tail_text, label="0"))
+        with open("saved-examples/" + set_type + self.timestamp + ".txt", "wb+") as f:
+            pickle.dump(examples, f)
         return examples
 
 def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer, print_info = True):
@@ -305,7 +312,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
             segment_ids += [1] * (len(tokens_b) + 1)
         if tokens_c:
             tokens += tokens_c + ["[SEP]"]
-            segment_ids += [0] * (len(tokens_c) + 1)        
+            segment_ids += [0] * (len(tokens_c) + 1)
 
         input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
@@ -600,7 +607,7 @@ def main():
         else:
             optimizer = FP16_Optimizer(optimizer, static_loss_scale=args.loss_scale)
         warmup_linear = WarmupLinearSchedule(warmup=args.warmup_proportion,
-                                             t_total=num_train_optimization_steps)        
+                                             t_total=num_train_optimization_steps)
 
     else:
         optimizer = BertAdam(optimizer_grouped_parameters,
@@ -694,7 +701,7 @@ def main():
     model.to(device)
 
     if args.do_eval and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
-        
+
         eval_examples = processor.get_dev_examples(args.data_dir)
         eval_features = convert_examples_to_features(
             eval_examples, label_list, args.max_seq_length, tokenizer)
@@ -711,7 +718,7 @@ def main():
         # Run prediction for full data
         eval_sampler = SequentialSampler(eval_data)
         eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size)
-        
+
         # Load a trained model and vocabulary that you have fine-tuned
         model = BertForSequenceClassification.from_pretrained(args.output_dir, num_labels=num_labels)
         tokenizer = BertTokenizer.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
@@ -735,7 +742,7 @@ def main():
             loss_fct = CrossEntropyLoss()
             tmp_eval_loss = loss_fct(logits.view(-1, num_labels), label_ids.view(-1))
             print(label_ids.view(-1))
-            
+
             eval_loss += tmp_eval_loss.mean().item()
             nb_eval_steps += 1
             if len(preds) == 0:
@@ -810,7 +817,7 @@ def main():
 
             loss_fct = CrossEntropyLoss()
             tmp_eval_loss = loss_fct(logits.view(-1, num_labels), label_ids.view(-1))
-            
+
             eval_loss += tmp_eval_loss.mean().item()
             nb_eval_steps += 1
             if len(preds) == 0:
@@ -822,7 +829,7 @@ def main():
         eval_loss = eval_loss / nb_eval_steps
         preds = preds[0]
         print(preds, preds.shape)
-        
+
         all_label_ids = all_label_ids.numpy()
 
         preds = np.argmax(preds, axis=1)
