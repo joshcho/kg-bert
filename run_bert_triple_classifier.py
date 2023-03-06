@@ -257,7 +257,7 @@ class KGProcessor(DataProcessor):
 def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer, print_info = True):
     """Loads a data file into a list of `InputBatch`s."""
 
-    label_map = {label : i for i, label in enumerate(label_list)}
+    # label_map = {label : i for i, label in enumerate(label_list)}
 
     features = []
     for (ex_index, example) in enumerate(examples):
@@ -329,7 +329,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
         assert len(input_mask) == max_seq_length
         assert len(segment_ids) == max_seq_length
 
-        label_id = label_map[example.label]
+        label_id = int(example.label) # label_map[example.label]
 
         if ex_index < 5 and print_info:
             logger.info("*** Example ***")
@@ -548,8 +548,9 @@ def main():
 
     processor = processors[task_name]()
 
-    label_list = processor.get_labels(args.data_dir)
-    num_labels = len(label_list)
+    # label_list = processor.get_labels(args.data_dir)
+    label_list = []
+    num_labels = 1 # len(label_list)
 
     entity_list = processor.get_entities(args.data_dir)
     #print(entity_list)
@@ -651,8 +652,10 @@ def main():
                 logits = model(input_ids, segment_ids, input_mask, labels=None)
                 #print(logits, logits.shape)
 
-                loss_fct = CrossEntropyLoss()
-                loss = loss_fct(logits.view(-1, num_labels), label_ids.view(-1))
+                loss_fct = MSELoss()
+                # loss_fct = CrossEntropyLoss()
+                loss = loss_fct(logits.view(-1), label_ids.view(-1))
+                # loss = loss_fct(logits.view(-1, num_labels), label_ids.view(-1))
 
                 if n_gpu > 1:
                     loss = loss.mean() # mean() to average on multi-gpu.
@@ -738,8 +741,8 @@ def main():
                 logits = model(input_ids, segment_ids, input_mask, labels=None)
 
             # create eval loss and other metric required by the task
-            loss_fct = CrossEntropyLoss()
-            tmp_eval_loss = loss_fct(logits.view(-1, num_labels), label_ids.view(-1))
+            loss_fct = MSELoss() #CrossEntropyLoss()
+            tmp_eval_loss = loss_fct(logits.view(-1), label_ids.view(-1)) # loss_fct(logits.view(-1, num_labels), label_ids.view(-1))
             print(label_ids.view(-1))
 
             eval_loss += tmp_eval_loss.mean().item()
@@ -814,8 +817,10 @@ def main():
             with torch.no_grad():
                 logits = model(input_ids, segment_ids, input_mask, labels=None)
 
-            loss_fct = CrossEntropyLoss()
-            tmp_eval_loss = loss_fct(logits.view(-1, num_labels), label_ids.view(-1))
+            # loss_fct = CrossEntropyLoss()
+            loss_fct = MSELoss()
+            # tmp_eval_loss = loss_fct(logits.view(-1, num_labels), label_ids.view(-1))
+            tmp_eval_loss = loss_fct(logits.view(-1), label_ids.view(-1))
 
             eval_loss += tmp_eval_loss.mean().item()
             nb_eval_steps += 1
