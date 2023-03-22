@@ -23,6 +23,7 @@ import logging
 import os
 import random
 import sys
+import pickle
 
 import numpy as np
 import torch
@@ -80,7 +81,6 @@ class InputFeatures(object):
         self.segment_ids = segment_ids
         self.label_id = label_id
 
-
 class DataProcessor(object):
     """Base class for data converters for sequence classification data sets."""
 
@@ -113,7 +113,7 @@ class KGProcessor(DataProcessor):
     """Processor for knowledge graph data set."""
     def __init__(self):
         self.labels = set()
-    
+
     def get_train_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
@@ -167,6 +167,13 @@ class KGProcessor(DataProcessor):
 
     def _create_examples(self, lines, set_type, data_dir):
         """Creates examples for the training and dev sets."""
+        examples_file = os.path.join(data_dir, f"{set_type}_examples.pkl")
+
+        # Load examples if the file exists
+        if os.path.exists(examples_file):
+            with open(examples_file, "rb") as f:
+                return pickle.load(f)
+
         # entity to text
         ent2text = {}
         with open(os.path.join(data_dir, "entity2text.txt"), 'r') as f:
@@ -176,14 +183,14 @@ class KGProcessor(DataProcessor):
                 if len(temp) == 2:
                     end = temp[1]#.find(',')
                     ent2text[temp[0]] = temp[1]#[:end]
-  
+
         if data_dir.find("FB15") != -1:
             with open(os.path.join(data_dir, "entity2textlong.txt"), 'r') as f:
                 ent_lines = f.readlines()
                 for line in ent_lines:
                     temp = line.strip().split('\t')
                     #first_sent_end_position = temp[1].find(".")
-                    ent2text[temp[0]] = temp[1]#[:first_sent_end_position + 1] 
+                    ent2text[temp[0]] = temp[1]#[:first_sent_end_position + 1]
 
         entities = list(ent2text.keys())
 
@@ -192,12 +199,12 @@ class KGProcessor(DataProcessor):
             rel_lines = f.readlines()
             for line in rel_lines:
                 temp = line.strip().split('\t')
-                rel2text[temp[0]] = temp[1]      
+                rel2text[temp[0]] = temp[1]
 
         lines_str_set = set(['\t'.join(line) for line in lines])
         examples = []
-        for (i, line) in enumerate(lines):
-            
+        for (i, line) in tqdm(enumerate(lines), desc="Generating examples"):
+
             head_ent_text = ent2text[line[0]]
             tail_ent_text = ent2text[line[2]]
             relation_text = rel2text[line[1]]
@@ -209,16 +216,16 @@ class KGProcessor(DataProcessor):
                 guid = "%s-%s" % (set_type, i)
                 text_a = head_ent_text
                 text_b = relation_text
-                text_c = tail_ent_text 
+                text_c = tail_ent_text
                 self.labels.add(label)
                 examples.append(
                     InputExample(guid=guid, text_a=text_a, text_b=text_b, text_c = text_c, label=label))
-                
+
             elif set_type == "train":
                 guid = "%s-%s" % (set_type, i)
                 text_a = head_ent_text
                 text_b = relation_text
-                text_c = tail_ent_text 
+                text_c = tail_ent_text
                 examples.append(
                     InputExample(guid=guid, text_a=text_a, text_b=text_b, text_c = text_c, label="1"))
 
@@ -235,10 +242,10 @@ class KGProcessor(DataProcessor):
                             tmp_head = random.choice(tmp_ent_list)
                             tmp_triple_str = tmp_head + '\t' + line[1] + '\t' + line[2]
                             if tmp_triple_str not in lines_str_set:
-                                break                    
+                                break
                         tmp_head_text = ent2text[tmp_head]
                         examples.append(
-                            InputExample(guid=guid, text_a=tmp_head_text, text_b=text_b, text_c = text_c, label="0"))       
+                            InputExample(guid=guid, text_a=tmp_head_text, text_b=text_b, text_c = text_c, label="0"))
                 else:
                     # corrupting tail
                     tmp_tail = ''
@@ -253,7 +260,9 @@ class KGProcessor(DataProcessor):
                                 break
                         tmp_tail_text = ent2text[tmp_tail]
                         examples.append(
-                            InputExample(guid=guid, text_a=text_a, text_b=text_b, text_c = tmp_tail_text, label="0"))                                                  
+                            InputExample(guid=guid, text_a=text_a, text_b=text_b, text_c = tmp_tail_text, label="0"))
+        with open(examples_file, "wb") as f:
+            pickle.dump(examples, f)
         return examples
 
 def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer, print_info = True):
@@ -313,7 +322,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
             segment_ids += [1] * (len(tokens_b) + 1)
         if tokens_c:
             tokens += tokens_c + ["[SEP]"]
-            segment_ids += [0] * (len(tokens_c) + 1)        
+            segment_ids += [0] * (len(tokens_c) + 1)
 
         input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
@@ -608,7 +617,7 @@ def main():
         else:
             optimizer = FP16_Optimizer(optimizer, static_loss_scale=args.loss_scale)
         warmup_linear = WarmupLinearSchedule(warmup=args.warmup_proportion,
-                                             t_total=num_train_optimization_steps)        
+                                             t_total=num_train_optimization_steps)
 
     else:
         optimizer = BertAdam(optimizer_grouped_parameters,
@@ -702,7 +711,7 @@ def main():
     model.to(device)
 
     if args.do_eval and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
-        
+
         eval_examples = processor.get_dev_examples(args.data_dir)
         eval_features = convert_examples_to_features(
             eval_examples, label_list, args.max_seq_length, tokenizer)
@@ -719,7 +728,7 @@ def main():
         # Run prediction for full data
         eval_sampler = SequentialSampler(eval_data)
         eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size)
-        
+
         # Load a trained model and vocabulary that you have fine-tuned
         model = BertForSequenceClassification.from_pretrained(args.output_dir, num_labels=num_labels)
         tokenizer = BertTokenizer.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
@@ -743,7 +752,7 @@ def main():
             loss_fct = CrossEntropyLoss()
             tmp_eval_loss = loss_fct(logits.view(-1, num_labels), label_ids.view(-1))
             print(label_ids.view(-1))
-            
+
             eval_loss += tmp_eval_loss.mean().item()
             nb_eval_steps += 1
             if len(preds) == 0:
@@ -818,7 +827,7 @@ def main():
 
             loss_fct = CrossEntropyLoss()
             tmp_eval_loss = loss_fct(logits.view(-1, num_labels), label_ids.view(-1))
-            
+
             eval_loss += tmp_eval_loss.mean().item()
             nb_eval_steps += 1
             if len(preds) == 0:
@@ -830,7 +839,7 @@ def main():
         eval_loss = eval_loss / nb_eval_steps
         preds = preds[0]
         print(preds, preds.shape)
-        
+
         all_label_ids = all_label_ids.numpy()
 
         preds = np.argmax(preds, axis=1)
@@ -885,7 +894,7 @@ def main():
             print('mean rank until now: ', np.mean(ranks))
             if rank2 < 10:
                 top_ten_hit_count += 1
-            print("hit@10 until now: ", top_ten_hit_count * 1.0 / len(ranks))                
+            print("hit@10 until now: ", top_ten_hit_count * 1.0 / len(ranks))
             for hits_level in range(10):
                 if rank1 <= hits_level:
                     hits[hits_level].append(1.0)
@@ -900,7 +909,7 @@ def main():
                 else:
                     hits[hits_level].append(0.0)
                     hits_right[hits_level].append(0.0)
-    
+
         '''
         for test_triple in test_triples:
             head = test_triple[0]
@@ -932,14 +941,14 @@ def main():
             model.eval()
 
             preds = []
-            
+
             for input_ids, input_mask, segment_ids, label_ids in tqdm(eval_dataloader, desc="Testing"):
 
                 input_ids = input_ids.to(device)
                 input_mask = input_mask.to(device)
                 segment_ids = segment_ids.to(device)
                 label_ids = label_ids.to(device)
-                
+
                 with torch.no_grad():
                     logits = model(input_ids, segment_ids, input_mask, labels=None)
                 if len(preds) == 0:
@@ -948,7 +957,7 @@ def main():
 
                 else:
                     batch_logits = logits.detach().cpu().numpy()
-                    preds[0] = np.append(preds[0], batch_logits, axis=0)       
+                    preds[0] = np.append(preds[0], batch_logits, axis=0)
 
             preds = preds[0]
             # get the dimension corresponding to current label 1
@@ -989,15 +998,15 @@ def main():
             eval_sampler = SequentialSampler(eval_data)
             eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size)
             model.eval()
-            preds = []        
+            preds = []
 
             for input_ids, input_mask, segment_ids, label_ids in tqdm(eval_dataloader, desc="Testing"):
-            
+
                 input_ids = input_ids.to(device)
                 input_mask = input_mask.to(device)
                 segment_ids = segment_ids.to(device)
                 label_ids = label_ids.to(device)
-                
+
                 with torch.no_grad():
                     logits = model(input_ids, segment_ids, input_mask, labels=None)
                 if len(preds) == 0:
@@ -1006,7 +1015,7 @@ def main():
 
                 else:
                     batch_logits = logits.detach().cpu().numpy()
-                    preds[0] = np.append(preds[0], batch_logits, axis=0) 
+                    preds[0] = np.append(preds[0], batch_logits, axis=0)
 
             preds = preds[0]
             # get the dimension corresponding to current label 1
@@ -1043,7 +1052,7 @@ def main():
                 else:
                     hits[hits_level].append(0.0)
                     hits_right[hits_level].append(0.0)
-    
+
 
         for i in [0,2,9]:
             logger.info('Hits left @{0}: {1}'.format(i+1, np.mean(hits_left[i])))
@@ -1054,7 +1063,7 @@ def main():
         logger.info('Mean rank: {0}'.format(np.mean(ranks)))
         logger.info('Mean reciprocal rank left: {0}'.format(np.mean(1./np.array(ranks_left))))
         logger.info('Mean reciprocal rank right: {0}'.format(np.mean(1./np.array(ranks_right))))
-        logger.info('Mean reciprocal rank: {0}'.format(np.mean(1./np.array(ranks))))            
-              
+        logger.info('Mean reciprocal rank: {0}'.format(np.mean(1./np.array(ranks))))
+
 if __name__ == "__main__":
     main()
